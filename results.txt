@@ -1,0 +1,52 @@
+Program project 4, variant 5 (m = 3)
+Frequencies of operations, %: read0 9, write0 1, read1 40, write1 10, read2 10, write2 10, string 20
+Protection scheme: one std::mutex for all three fields (string copies the fields under it
+                   and formats the result after unlocking)
+Build: optimized (NDEBUG defined)
+Hardware threads: 16
+Test directory: C:\Users\User\Desktop\CPP\Program project 4\tests
+Each case: 1 warm-up run + 10 measured runs, a new structure for every run;
+time is measured from the common start of all threads to the end of the last one
+(reading files and creating threads are not included).
+Loaded 18 files, 10800000 operations in total.
+
+a) frequencies of variant 5
+  1 thread,  1200000 ops: avg   14.92 ms  (min 14.62, max 15.32)
+      a_t1_0.txt: 1200000 ops, thread finished after avg   14.89 ms
+  2 threads, 1200000 ops: avg   27.76 ms  (min 27.08, max 28.84)
+      a_t2_0.txt: 600000 ops, thread finished after avg   27.55 ms
+      a_t2_1.txt: 600000 ops, thread finished after avg   27.57 ms
+  3 threads, 1200000 ops: avg   27.98 ms  (min 27.07, max 28.76)
+      a_t3_0.txt: 400000 ops, thread finished after avg   27.50 ms
+      a_t3_1.txt: 400000 ops, thread finished after avg   27.81 ms
+      a_t3_2.txt: 400000 ops, thread finished after avg   27.73 ms
+
+b) all frequencies equal
+  1 thread,  1200000 ops: avg   13.60 ms  (min 13.41, max 13.90)
+      b_t1_0.txt: 1200000 ops, thread finished after avg   13.56 ms
+  2 threads, 1200000 ops: avg   25.77 ms  (min 24.84, max 26.81)
+      b_t2_0.txt: 600000 ops, thread finished after avg   25.67 ms
+      b_t2_1.txt: 600000 ops, thread finished after avg   25.52 ms
+  3 threads, 1200000 ops: avg   26.40 ms  (min 25.81, max 26.98)
+      b_t3_0.txt: 400000 ops, thread finished after avg   26.14 ms
+      b_t3_1.txt: 400000 ops, thread finished after avg   26.11 ms
+      b_t3_2.txt: 400000 ops, thread finished after avg   26.20 ms
+
+c) far from variant, not equal
+  1 thread,  1200000 ops: avg   11.39 ms  (min 11.30, max 11.76)
+      c_t1_0.txt: 1200000 ops, thread finished after avg   11.36 ms
+  2 threads, 1200000 ops: avg   22.19 ms  (min 20.28, max 22.97)
+      c_t2_0.txt: 600000 ops, thread finished after avg   22.00 ms
+      c_t2_1.txt: 600000 ops, thread finished after avg   22.07 ms
+  3 threads, 1200000 ops: avg   22.75 ms  (min 22.00, max 23.82)
+      c_t3_0.txt: 400000 ops, thread finished after avg   22.51 ms
+      c_t3_1.txt: 400000 ops, thread finished after avg   22.46 ms
+      c_t3_2.txt: 400000 ops, thread finished after avg   22.57 ms
+
+Average time, ms (10 runs each)
+test files                            1 thread   2 threads   3 threads
+a) frequencies of variant 5              14.92       27.76       27.98
+b) all frequencies equal                 13.60       25.77       26.40
+c) far from variant, not equal           11.39       22.19       22.75
+
+(control value, sum of all reads and string lengths: 2070418850)

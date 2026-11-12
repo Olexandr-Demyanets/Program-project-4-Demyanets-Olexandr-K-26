@@ -1,0 +1,26 @@
+Program project 4, variant 5: comparison of protection schemes
+Average time, ms (5 runs each), on the same test files as benchmark
+
+a) frequencies of variant 5
+  scheme                                        1 thread   2 threads   3 threads
+  1 std::mutex (chosen, ThreeFields)               15.36       28.45       28.82
+  2 std::mutex: {field 1}, {fields 0, 2}           17.62       34.23       33.65
+  3 std::mutex, one per field                      19.17       37.45       42.28
+  1 std::shared_mutex                              56.23      133.99      158.44
+  3 std::shared_mutex, one per field               76.66      191.81      231.44
+
+b) all frequencies equal
+  scheme                                        1 thread   2 threads   3 threads
+  1 std::mutex (chosen, ThreeFields)               13.47       27.80       29.16
+  2 std::mutex: {field 1}, {fields 0, 2}           15.73       35.25       34.80
+  3 std::mutex, one per field                      17.18       37.06       38.60
+  1 std::shared_mutex                              55.08      151.07      147.51
+  3 std::shared_mutex, one per field               70.12      191.18      216.97
+
+c) far from variant, not equal
+  scheme                                        1 thread   2 threads   3 threads
+  1 std::mutex (chosen, ThreeFields)               11.63       24.00       25.33
+  2 std::mutex: {field 1}, {fields 0, 2}           12.54       27.28       28.29
+  3 std::mutex, one per field                      12.87       26.70       28.32
+  1 std::shared_mutex                              53.15      106.73      100.60
+  3 std::shared_mutex, one per field               58.95      143.93      145.18
