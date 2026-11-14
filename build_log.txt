@@ -1,3 +1,6 @@
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/User/Desktop/CPP/Program project 4/build
 [ 25%] Building CXX object CMakeFiles/generator.dir/src/generator.cpp.obj
 [ 50%] Linking CXX executable generator.exe
 [ 50%] Built target generator

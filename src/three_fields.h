@@ -1,15 +1,3 @@
-// Компілятор: g++ 15.2.0 (MSYS2 UCRT64), C++20
-// Програмний проєкт 4, варіант 5: структура даних із m = 3 цілих полів для багатопотокової програми.
-//
-// Схема захисту: ОДИН std::mutex на всю структуру.
-// Обґрунтування коротко (детально з вимірами - у README.md):
-//  * string (20 % операцій) має повернути узгоджений знімок усіх трьох полів, тож при
-//    окремому м'ютексі на поле він блокував би 2-3 м'ютекси замість одного;
-//  * поле 1 бере участь у 70 % операцій (read 40 % + write 10 % + string 20 %), тож
-//    навіть окремий м'ютекс для кожного поля серіалізує більшість операцій на м'ютексі поля 1;
-//  * критична секція - копіювання одного int (~1 нс), а читання-запис-блокування
-//    (std::shared_mutex) у MinGW реалізоване через pthread_rwlock і в 4-5 разів дорожче
-//    за std::mutex, тож перевага паралельних читань (59 % read + 20 % string) не окупається.
 #pragma once
 
 #include <mutex>
@@ -63,7 +51,8 @@ private:
     static void checkField(int field)
     {
         if (field < 0 || field >= kFieldCount)
-            throw std::out_of_range("field index " + std::to_string(field) + " is out of range [0, 3)");
+            throw std::out_of_range("field index " + std::to_string(field) + " is out of range [0, " +
+                                    std::to_string(kFieldCount) + ")");
     }
 
     mutable std::mutex mutex_;

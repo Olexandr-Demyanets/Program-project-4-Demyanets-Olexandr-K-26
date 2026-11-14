@@ -26,185 +26,38 @@
 #include <thread>
 #include <vector>
 
-inline constexpr int kKindCount = 7;
-inline constexpr const char* kKindNames[kKindCount] = {
-    "read 0", "write 0", "read 1", "write 1", "read 2", "write 2", "string"};
+using namespace std;
+namespace fs = std::filesystem;
 
 struct Scenario
 {
     char id;
     const char* title;
-    int weights[kKindCount];
 };
 
-inline constexpr Scenario kScenarios[] = {
-    {'a', "frequencies of variant 5", {9, 1, 40, 10, 10, 10, 20}},
-    {'b', "all frequencies equal", {1, 1, 1, 1, 1, 1, 1}},
-    {'c', "far from variant, not equal", {1, 40, 2, 5, 2, 45, 5}},
+constexpr Scenario kScenarios[] = {
+    {'a', "frequencies of variant 5"},
+    {'b', "all frequencies equal"},
+    {'c', "far from variant, not equal"},
 };
-inline constexpr int kScenarioCount = 3;
+constexpr int kScenarioCount = 3;
+constexpr int kMaxThreads = 3;
 
-inline constexpr int kMaxThreads = 3;
-inline constexpr long long kDefaultTotalOps = 1'200'000;
-
-inline std::string testFileName(char scenario, int threads, int index)
+string testFileName(char scenario, int threads, int index)
 {
-    return std::string(1, scenario) + "_t" + std::to_string(threads) + "_" + std::to_string(index) + ".txt";
+    return string(1, scenario) + "_t" + to_string(threads) + "_" + to_string(index) + ".txt";
 }
 
-enum class OpType : std::uint8_t { Read, Write, String };
+enum class OpType : uint8_t { Read, Write, String };
 
 struct Operation
 {
     OpType type;
-    std::uint8_t field;
+    uint8_t field;
     int value;
 };
 
-using OpSequence = std::vector<Operation>;
-
-OpSequence loadOperations(const std::filesystem::path& path, int fieldCount);
-
-template <class Structure>
-long long execute(Structure& data, const OpSequence& ops)
-{
-    long long checksum = 0;
-    for (const Operation& op : ops)
-    {
-        switch (op.type)
-        {
-        case OpType::Read:
-            checksum += data.get(op.field);
-            break;
-        case OpType::Write:
-            data.set(op.field, op.value);
-            break;
-        case OpType::String:
-            checksum += static_cast<long long>(static_cast<std::string>(data).size());
-            break;
-        }
-    }
-    return checksum;
-}
-
-struct RunResult
-{
-    double totalMs = 0;
-    std::vector<double> perThreadMs;
-    long long checksum = 0;
-};
-
-template <class Structure>
-RunResult runInThreads(Structure& data, const std::vector<OpSequence>& sequences)
-{
-    using Clock = std::chrono::steady_clock;
-    const std::size_t n = sequences.size();
-
-    std::mutex gateMutex;
-    std::condition_variable gateCv;
-    std::size_t ready = 0;
-    bool started = false;
-
-    std::vector<long long> checksums(n, 0);
-    std::vector<Clock::time_point> finishes(n);
-    std::vector<std::exception_ptr> errors(n);
-
-    auto openGate = [&] {
-        {
-            std::lock_guard lock(gateMutex);
-            started = true;
-        }
-        gateCv.notify_all();
-    };
-
-    std::vector<std::thread> threads;
-    threads.reserve(n);
-    try
-    {
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            threads.emplace_back([&, i] {
-                {
-                    std::unique_lock lock(gateMutex);
-                    ++ready;
-                    gateCv.notify_all();
-                    gateCv.wait(lock, [&] { return started; });
-                }
-                try
-                {
-                    checksums[i] = execute(data, sequences[i]);
-                }
-                catch (...)
-                {
-                    errors[i] = std::current_exception();
-                }
-                finishes[i] = Clock::now();
-            });
-        }
-    }
-    catch (...)
-    {
-        openGate();
-        for (std::thread& t : threads) t.join();
-        throw;
-    }
-
-    {
-        std::unique_lock lock(gateMutex);
-        gateCv.wait(lock, [&] { return ready == n; });
-    }
-    const Clock::time_point start = Clock::now();
-    openGate();
-    for (std::thread& t : threads) t.join();
-    const Clock::time_point finish = Clock::now();
-
-    for (const std::exception_ptr& e : errors)
-        if (e) std::rethrow_exception(e);
-
-    RunResult result;
-    result.totalMs = std::chrono::duration<double, std::milli>(finish - start).count();
-    for (std::size_t i = 0; i < n; ++i)
-    {
-        result.perThreadMs.push_back(std::chrono::duration<double, std::milli>(finishes[i] - start).count());
-        result.checksum += checksums[i];
-    }
-    return result;
-}
-
-struct Measurement
-{
-    double avgMs = 0, minMs = 0, maxMs = 0;
-    std::vector<double> perThreadAvgMs;
-    long long checksum = 0;
-};
-
-template <class Structure>
-Measurement measure(const std::vector<OpSequence>& sequences, int repeats)
-{
-    {
-        Structure warmUp;
-        runInThreads(warmUp, sequences);
-    }
-    Measurement m;
-    m.perThreadAvgMs.assign(sequences.size(), 0.0);
-    for (int r = 0; r < repeats; ++r)
-    {
-        Structure data;
-        const RunResult run = runInThreads(data, sequences);
-        m.avgMs += run.totalMs;
-        m.minMs = r == 0 ? run.totalMs : std::min(m.minMs, run.totalMs);
-        m.maxMs = r == 0 ? run.totalMs : std::max(m.maxMs, run.totalMs);
-        for (std::size_t i = 0; i < sequences.size(); ++i) m.perThreadAvgMs[i] += run.perThreadMs[i];
-        m.checksum += run.checksum;
-    }
-    m.avgMs /= repeats;
-    for (double& t : m.perThreadAvgMs) t /= repeats;
-    return m;
-}
-
-using namespace std;
-
-namespace {
+using OpSequence = vector<Operation>;
 
 int splitWords(string_view line, string_view words[], int maxWords)
 {
@@ -227,15 +80,37 @@ bool parseInt(string_view text, int& value)
     return ec == errc() && ptr == text.data() + text.size();
 }
 
+fs::path directoryFromArg(const char* arg)
+{
+    try
+    {
+        return fs::path(arg);
+    }
+    catch (const fs::filesystem_error&)
+    {
+        throw invalid_argument("directory name in the argument must consist of ASCII characters only");
+    }
 }
 
-OpSequence loadOperations(const filesystem::path& path, int fieldCount)
+int parseRepeats(const char* text)
+{
+    const string s = text;
+    int value = 0;
+    const auto [ptr, ec] = from_chars(s.data(), s.data() + s.size(), value);
+    if (ec != errc() || ptr != s.data() + s.size() || value <= 0)
+        throw invalid_argument("number of repeats must be a positive integer, got \"" + s + "\"");
+    return value;
+}
+
+OpSequence loadOperations(const fs::path& path, int fieldCount)
 {
     ifstream in(path, ios::binary);
     if (!in) throw runtime_error("cannot open file " + path.string());
     string text;
     in.seekg(0, ios::end);
-    text.resize(static_cast<size_t>(in.tellg()));
+    const streamoff size = in.tellg();
+    if (size < 0) throw runtime_error("cannot read file " + path.string());
+    text.resize(static_cast<size_t>(size));
     in.seekg(0, ios::beg);
     in.read(text.data(), static_cast<streamsize>(text.size()));
     if (!in) throw runtime_error("cannot read file " + path.string());
@@ -292,10 +167,185 @@ OpSequence loadOperations(const filesystem::path& path, int fieldCount)
     return ops;
 }
 
-using namespace std;
-namespace fs = std::filesystem;
+struct TestSet
+{
+    vector<string> fileNames;
+    vector<OpSequence> sequences;
+    long long totalOps = 0;
+};
 
-namespace {
+TestSet loadTestSet(const fs::path& dir, char scenario, int threads)
+{
+    TestSet set;
+    for (int i = 0; i < threads; ++i)
+    {
+        const string name = testFileName(scenario, threads, i);
+        const fs::path path = dir / name;
+        if (!fs::exists(path))
+            throw runtime_error("file " + path.string() +
+                                " not found; run generator first or pass the directory with test files as an argument");
+        set.fileNames.push_back(name);
+        set.sequences.push_back(loadOperations(path, ThreeFields::kFieldCount));
+        set.totalOps += static_cast<long long>(set.sequences.back().size());
+    }
+    return set;
+}
+
+vector<TestSet> loadScenario(const fs::path& dir, char scenario)
+{
+    vector<TestSet> sets;
+    for (int threads = 1; threads <= kMaxThreads; ++threads)
+    {
+        sets.push_back(loadTestSet(dir, scenario, threads));
+        const long long ops = sets.back().totalOps;
+        const long long expected = sets.front().totalOps;
+        if (ops == 0)
+            throw runtime_error("scenario " + string(1, scenario) + ": files for " + to_string(threads) +
+                                " thread(s) contain no operations");
+        if (ops != expected)
+            throw runtime_error("scenario " + string(1, scenario) + ": files for " + to_string(threads) +
+                                " threads contain " + to_string(ops) + " operations in total, but the file for 1 thread contains " +
+                                to_string(expected) + "; the total must be the same");
+    }
+    return sets;
+}
+
+template <class Structure>
+long long execute(Structure& data, const OpSequence& ops)
+{
+    long long checksum = 0;
+    for (const Operation& op : ops)
+    {
+        switch (op.type)
+        {
+        case OpType::Read:
+            checksum += data.get(op.field);
+            break;
+        case OpType::Write:
+            data.set(op.field, op.value);
+            break;
+        case OpType::String:
+            checksum += static_cast<long long>(static_cast<string>(data).size());
+            break;
+        }
+    }
+    return checksum;
+}
+
+struct RunResult
+{
+    double totalMs = 0;
+    vector<double> perThreadMs;
+    long long checksum = 0;
+};
+
+template <class Structure>
+RunResult runInThreads(Structure& data, const vector<OpSequence>& sequences)
+{
+    using Clock = chrono::steady_clock;
+    const size_t n = sequences.size();
+
+    mutex gateMutex;
+    condition_variable gateCv;
+    size_t ready = 0;
+    bool started = false;
+
+    vector<long long> checksums(n, 0);
+    vector<Clock::time_point> finishes(n);
+    vector<exception_ptr> errors(n);
+
+    auto openGate = [&] {
+        {
+            lock_guard lock(gateMutex);
+            started = true;
+        }
+        gateCv.notify_all();
+    };
+
+    vector<thread> threads;
+    threads.reserve(n);
+    try
+    {
+        for (size_t i = 0; i < n; ++i)
+        {
+            threads.emplace_back([&, i] {
+                {
+                    unique_lock lock(gateMutex);
+                    ++ready;
+                    gateCv.notify_all();
+                    gateCv.wait(lock, [&] { return started; });
+                }
+                try
+                {
+                    checksums[i] = execute(data, sequences[i]);
+                }
+                catch (...)
+                {
+                    errors[i] = current_exception();
+                }
+                finishes[i] = Clock::now();
+            });
+        }
+    }
+    catch (...)
+    {
+        openGate();
+        for (thread& t : threads) t.join();
+        throw;
+    }
+
+    {
+        unique_lock lock(gateMutex);
+        gateCv.wait(lock, [&] { return ready == n; });
+    }
+    const Clock::time_point start = Clock::now();
+    openGate();
+    for (thread& t : threads) t.join();
+    const Clock::time_point finish = Clock::now();
+
+    for (const exception_ptr& e : errors)
+        if (e) rethrow_exception(e);
+
+    RunResult result;
+    result.totalMs = chrono::duration<double, milli>(finish - start).count();
+    for (size_t i = 0; i < n; ++i)
+    {
+        result.perThreadMs.push_back(chrono::duration<double, milli>(finishes[i] - start).count());
+        result.checksum += checksums[i];
+    }
+    return result;
+}
+
+struct Measurement
+{
+    double avgMs = 0, minMs = 0, maxMs = 0;
+    vector<double> perThreadAvgMs;
+    long long checksum = 0;
+};
+
+template <class Structure>
+Measurement measure(const vector<OpSequence>& sequences, int repeats)
+{
+    {
+        Structure warmUpData;
+        runInThreads(warmUpData, sequences);
+    }
+    Measurement m;
+    m.perThreadAvgMs.assign(sequences.size(), 0.0);
+    for (int r = 0; r < repeats; ++r)
+    {
+        Structure data;
+        const RunResult run = runInThreads(data, sequences);
+        m.avgMs += run.totalMs;
+        m.minMs = r == 0 ? run.totalMs : min(m.minMs, run.totalMs);
+        m.maxMs = r == 0 ? run.totalMs : max(m.maxMs, run.totalMs);
+        for (size_t i = 0; i < sequences.size(); ++i) m.perThreadAvgMs[i] += run.perThreadMs[i];
+        m.checksum += run.checksum;
+    }
+    m.avgMs /= repeats;
+    for (double& t : m.perThreadAvgMs) t /= repeats;
+    return m;
+}
 
 void checkField(int field)
 {
@@ -473,15 +523,12 @@ double averageMsReused(const vector<OpSequence>& sequences, int repeats)
     return sum / repeats;
 }
 
-}
-
 int compareMain(int argc, char* argv[])
 {
     try
     {
-        const fs::path dir = argc > 1 ? fs::path(argv[1]) : fs::path("tests");
-        const int repeats = argc > 2 ? stoi(argv[2]) : 5;
-        if (repeats <= 0) throw invalid_argument("number of repeats must be positive");
+        const fs::path dir = argc > 1 ? directoryFromArg(argv[1]) : fs::path("tests");
+        const int repeats = argc > 2 ? parseRepeats(argv[2]) : 5;
 
         cout << "Program project 4, variant 5: comparison of protection schemes\n"
              << "Average time, ms (" << repeats << " runs each), on the same test files as benchmark\n"
@@ -490,25 +537,14 @@ int compareMain(int argc, char* argv[])
         for (int s = 0; s < kScenarioCount; ++s)
         {
             const Scenario& sc = kScenarios[s];
-            vector<vector<OpSequence>> sets;
-            for (int threads = 1; threads <= kMaxThreads; ++threads)
-            {
-                vector<OpSequence> set;
-                for (int i = 0; i < threads; ++i)
-                {
-                    const fs::path path = dir / testFileName(sc.id, threads, i);
-                    if (!fs::exists(path)) throw runtime_error("file " + path.string() + " not found; run generator first");
-                    set.push_back(loadOperations(path, 3));
-                }
-                sets.push_back(move(set));
-            }
+            const vector<TestSet> sets = loadScenario(dir, sc.id);
 
             cout << "\n" << sc.id << ") " << sc.title << "\n"
                  << left << setw(46) << "  scheme" << right << setw(10) << "1 thread" << setw(12) << "2 threads"
                  << setw(12) << "3 threads" << "\n";
             auto row = [&](const char* name, auto averageFn) {
                 cout << left << setw(46) << name << right;
-                for (int t = 0; t < kMaxThreads; ++t) cout << setw(t == 0 ? 10 : 12) << averageFn(sets[t], repeats);
+                for (int t = 0; t < kMaxThreads; ++t) cout << setw(t == 0 ? 10 : 12) << averageFn(sets[t].sequences, repeats);
                 cout << "\n";
             };
             row("  1 std::mutex (chosen, ThreeFields)", averageMs<ThreeFields>);
@@ -526,44 +562,6 @@ int compareMain(int argc, char* argv[])
     return 0;
 }
 
-using namespace std;
-namespace fs = std::filesystem;
-
-namespace {
-
-struct TestSet
-{
-    vector<string> fileNames;
-    vector<OpSequence> sequences;
-    long long totalOps = 0;
-};
-
-int parseRepeats(const char* text)
-{
-    const string s = text;
-    int value = 0;
-    const auto [ptr, ec] = from_chars(s.data(), s.data() + s.size(), value);
-    if (ec != errc() || ptr != s.data() + s.size() || value <= 0)
-        throw invalid_argument("number of repeats must be a positive integer, got \"" + s + "\"");
-    return value;
-}
-
-TestSet loadTestSet(const fs::path& dir, char scenario, int threads)
-{
-    TestSet set;
-    for (int i = 0; i < threads; ++i)
-    {
-        const string name = testFileName(scenario, threads, i);
-        const fs::path path = dir / name;
-        if (!fs::exists(path))
-            throw runtime_error("file " + path.string() + " not found; run generator first");
-        set.fileNames.push_back(name);
-        set.sequences.push_back(loadOperations(path, ThreeFields::kFieldCount));
-        set.totalOps += static_cast<long long>(set.sequences.back().size());
-    }
-    return set;
-}
-
 void printHeader(const fs::path& dir, int repeats)
 {
     cout << "Program project 4, variant 5 (m = 3)\n"
@@ -576,30 +574,27 @@ void printHeader(const fs::path& dir, int repeats)
          << "Build: WARNING - debug build (NDEBUG not defined), times are not representative\n"
 #endif
          << "Hardware threads: " << thread::hardware_concurrency() << "\n"
-         << "Test directory: " << fs::absolute(dir).string() << "\n"
+         << "Test directory: " << dir.string() << "\n"
          << "Each case: 1 warm-up run + " << repeats << " measured runs, a new structure for every run;\n"
          << "time is measured from the common start of all threads to the end of the last one\n"
          << "(reading files and creating threads are not included).\n";
-}
-
 }
 
 int benchmarkMain(int argc, char* argv[])
 {
     try
     {
-        const fs::path dir = argc > 1 ? fs::path(argv[1]) : fs::path("tests");
+        const fs::path dir = argc > 1 ? directoryFromArg(argv[1]) : fs::path("tests");
         const int repeats = argc > 2 ? parseRepeats(argv[2]) : 10;
         printHeader(dir, repeats);
 
-        vector<vector<TestSet>> sets(kScenarioCount);
+        vector<vector<TestSet>> sets;
         long long totalOps = 0;
         for (int s = 0; s < kScenarioCount; ++s)
-            for (int threads = 1; threads <= kMaxThreads; ++threads)
-            {
-                sets[s].push_back(loadTestSet(dir, kScenarios[s].id, threads));
-                totalOps += sets[s].back().totalOps;
-            }
+        {
+            sets.push_back(loadScenario(dir, kScenarios[s].id));
+            for (const TestSet& set : sets.back()) totalOps += set.totalOps;
+        }
         cout << "Loaded " << kScenarioCount * (kMaxThreads * (kMaxThreads + 1) / 2) << " files, "
              << totalOps << " operations in total.\n";
 
@@ -645,6 +640,6 @@ int benchmarkMain(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
-    if (argc > 1 && std::string(argv[1]) == "--compare") return compareMain(argc - 1, argv + 1);
+    if (argc > 1 && string(argv[1]) == "--compare") return compareMain(argc - 1, argv + 1);
     return benchmarkMain(argc, argv);
 }

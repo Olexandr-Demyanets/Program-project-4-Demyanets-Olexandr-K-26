@@ -1,13 +1,3 @@
-// Компілятор: g++ 15.2.0 (MSYS2 UCRT64), C++20
-// Програмний проєкт 4, варіант 5: генератор тестових файлів з послідовністю дій.
-//
-// Використання: generator [каталог = tests] [кількість операцій = 1200000] [seed = 2026]
-//
-// Для кожного сценарію (а, б, в) і кожної кількості потоків t = 1, 2, 3 створюється t файлів
-// по N / t операцій - власна послідовність для кожного потоку, а загальна кількість
-// операцій однакова незалежно від кількості потоків.
-// Кількість операцій кожного виду в файлі точно відповідає заданим частотам
-// (метод найбільших остач), а їхній порядок випадковий (std::shuffle з std::mt19937_64).
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
@@ -21,8 +11,8 @@
 #include <string>
 #include <vector>
 
-inline constexpr int kKindCount = 7;
-inline constexpr const char* kKindNames[kKindCount] = {
+constexpr int kKindCount = 7;
+constexpr const char* kKindNames[kKindCount] = {
     "read 0", "write 0", "read 1", "write 1", "read 2", "write 2", "string"};
 
 struct Scenario
@@ -32,17 +22,18 @@ struct Scenario
     int weights[kKindCount];
 };
 
-inline constexpr Scenario kScenarios[] = {
+constexpr Scenario kScenarios[] = {
     {'a', "frequencies of variant 5", {9, 1, 40, 10, 10, 10, 20}},
     {'b', "all frequencies equal", {1, 1, 1, 1, 1, 1, 1}},
     {'c', "far from variant, not equal", {1, 40, 2, 5, 2, 45, 5}},
 };
-inline constexpr int kScenarioCount = 3;
+constexpr int kScenarioCount = 3;
 
-inline constexpr int kMaxThreads = 3;
-inline constexpr long long kDefaultTotalOps = 1'200'000;
+constexpr int kMaxThreads = 3;
+constexpr long long kDefaultTotalOps = 1'200'000;
+constexpr long long kMaxTotalOps = 120'000'000;
 
-inline std::string testFileName(char scenario, int threads, int index)
+std::string testFileName(char scenario, int threads, int index)
 {
     return std::string(1, scenario) + "_t" + std::to_string(threads) + "_" + std::to_string(index) + ".txt";
 }
@@ -51,6 +42,18 @@ using namespace std;
 namespace fs = std::filesystem;
 
 namespace {
+
+fs::path directoryFromArg(const char* arg)
+{
+    try
+    {
+        return fs::path(arg);
+    }
+    catch (const fs::filesystem_error&)
+    {
+        throw invalid_argument("directory name in the argument must consist of ASCII characters only");
+    }
+}
 
 long long parsePositive(const char* text, const char* what)
 {
@@ -126,6 +129,7 @@ void writeFile(const fs::path& path, const string& text)
     ofstream out(path, ios::binary);
     if (!out) throw runtime_error("cannot create file " + path.string());
     out.write(text.data(), static_cast<streamsize>(text.size()));
+    out.close();
     if (!out) throw runtime_error("cannot write file " + path.string());
 }
 
@@ -135,15 +139,17 @@ int main(int argc, char* argv[])
 {
     try
     {
-        const fs::path dir = argc > 1 ? fs::path(argv[1]) : fs::path("tests");
+        const fs::path dir = argc > 1 ? directoryFromArg(argv[1]) : fs::path("tests");
         const long long total = argc > 2 ? parsePositive(argv[2], "number of operations") : kDefaultTotalOps;
         const uint64_t seed = argc > 3 ? static_cast<uint64_t>(parsePositive(argv[3], "seed")) : 2026;
         if (total % 6 != 0)
             throw invalid_argument("number of operations must be divisible by 1, 2 and 3 (that is, by 6)");
+        if (total > kMaxTotalOps)
+            throw invalid_argument("number of operations must not exceed " + to_string(kMaxTotalOps));
 
         fs::create_directories(dir);
         cout << "Program project 4, variant 5: test file generator\n"
-             << "Directory: " << fs::absolute(dir).string() << "\n"
+             << "Directory: " << dir.string() << "\n"
              << "Operations per case (1, 2 or 3 threads): " << total << ", seed: " << seed << "\n";
 
         for (int s = 0; s < kScenarioCount; ++s)
@@ -152,7 +158,7 @@ int main(int argc, char* argv[])
             const vector<long long> share = kindCounts(sc, 10000);
             cout << "\n" << sc.id << ") " << sc.title << ":";
             for (int k = 0; k < kKindCount; ++k)
-                cout << (k ? ", " : " ") << kKindNames[k] << " " << fixed << setprecision(2) << share[k] / 100.0 << "%";
+                cout << (k ? ", " : " ") << kKindNames[k] << " " << fixed << setprecision(2) << static_cast<double>(share[k]) / 100.0 << "%";
             cout << "\n";
 
             for (int threads = 1; threads <= kMaxThreads; ++threads)
